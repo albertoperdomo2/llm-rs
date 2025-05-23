@@ -1,2 +1,5 @@
 ROADMAP.md
 ARCH.md
+
+target/
+**/*.lock
