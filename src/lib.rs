@@ -32,7 +32,7 @@ pub fn matmul(a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f32> {
             let b_row = &b_transposed[j * n..(j + 1) * n];
 
             // process 8 elements at once
-            let chunks = k / SIMD_WIDTH;
+            let chunks = n / SIMD_WIDTH;
             for chunk in 0..chunks {
                 let start = chunk * SIMD_WIDTH;
                 let a_vec = f32x8::from_slice(&a_row[start..start + SIMD_WIDTH]);
@@ -44,7 +44,7 @@ pub fn matmul(a: &[f32], b: &[f32], m: usize, n: usize, k: usize) -> Vec<f32> {
             let mut final_sum = sum_array.iter().sum::<f32>();
 
             // handle remaining elements
-            for l in (chunks * SIMD_WIDTH)..k {
+            for l in (chunks * SIMD_WIDTH)..n {
                 final_sum += a_row[l] * b_row[l];
             }
 
@@ -204,3 +204,100 @@ pub fn complete_multi_head_attention(
 
     final_output
 }
+
+pub fn silu(x: f32) -> f32 {
+    x / (1.0 + (-x).exp())  // x * sigmoid(x)
+}
+
+pub fn swiglu_feedforward(
+    input: &[f32],
+    w_gate: &[f32],
+    w_up: &[f32],
+    w_down: &[f32],
+    seq_len: usize,
+    hidden_size: usize,
+    intermediate_size: usize,
+) -> Vec<f32> {
+    // SwiGLU(x) = SiLU(x × W_gate) (dot) (x × W_up) × W_down
+    let gate_linear = matmul(input, w_gate, seq_len, hidden_size, intermediate_size);
+
+    let mut gate_activated = Vec::new();
+    for &x in gate_linear.iter() {
+        gate_activated.push(silu(x));
+    }
+
+    let up = matmul(input, w_up, seq_len, hidden_size, intermediate_size);
+
+    let combined: Vec<f32> = gate_activated.iter()
+        .zip(up.iter())
+        .map(|(x, y)| x * y)
+        .collect();
+
+    let output = matmul(&combined, w_down, seq_len, intermediate_size, hidden_size);
+
+    output
+}
+
+pub fn rms_norm(input: &[f32], weight: &[f32], seq_len: usize, hidden_size: usize) -> Vec<f32> {
+    let epsilon = 1e-5;
+    let mut output = Vec::with_capacity(input.len());
+
+    for word_idx in 0..seq_len {
+        let word_features = &input[word_idx * hidden_size..word_idx * hidden_size + hidden_size];
+
+        let rms = (word_features.iter().map(|x| x * x).sum::<f32>() / hidden_size as f32).sqrt() + epsilon;
+
+        for (i, &feature) in word_features.iter().enumerate() {
+            let normalized = (feature / rms) * weight[i];
+            output.push(normalized);
+        }
+    }
+
+    output
+}
+
+pub fn phi3_transformer_block(
+    input: &[f32],
+    head_weights: &[HeadWeights],
+    w_output: &[f32],
+    w_gate: &[f32],
+    w_up: &[f32], 
+    w_down: &[f32],
+    attn_norm_weight: &[f32],
+    ff_norm_weight: &[f32],
+    seq_len: usize,
+    hidden_size: usize,
+    intermediate_size: usize,
+    num_heads: usize
+) -> Vec<f32> {
+    let normalized_input = rms_norm(input, attn_norm_weight, seq_len, hidden_size);
+    
+    let attention_out = complete_multi_head_attention(
+        &normalized_input, num_heads, seq_len, hidden_size, head_weights, w_output
+    );
+    
+    // residual connection (add input back)
+    let mut after_attention = Vec::new();
+    for (i, (&att, &inp)) in attention_out.iter().zip(input.iter()).enumerate() {
+        after_attention.push(att + inp);
+    }
+    
+    // pre-feed-forward normalization  
+    let normalized_attention = rms_norm(&after_attention, ff_norm_weight, seq_len, hidden_size);
+    
+    // SwiGLU feed-forward
+    let ff_out = swiglu_feedforward(
+        &normalized_attention, w_gate, w_up, w_down, 
+        seq_len, hidden_size, intermediate_size
+    );
+    
+    // final residual connection
+    let mut output = Vec::new();
+    for (i, (&ff, &att)) in ff_out.iter().zip(after_attention.iter()).enumerate() {
+        output.push(ff + att);
+    }
+    
+    output
+}
+
+pub mod tokenizer;
