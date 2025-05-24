@@ -3,3 +3,4 @@ ARCH.md
 
 target/
 **/*.lock
+moddels/
