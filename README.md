@@ -1,3 +1,3 @@
-# rLLM
+# llm-rs
 
-Metal-accelerated Rust Inference Engine project
+LLM inference engine implementation in Rust for Phi3 model (for now)

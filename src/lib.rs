@@ -9,7 +9,7 @@ pub mod layers;
 pub mod models;
 pub mod tokenizer;
 pub mod loader;
-// pub mod generation;
+pub mod generation;
 
 
 // core result type

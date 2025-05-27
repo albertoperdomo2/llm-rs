@@ -1,43 +1,23 @@
-fn test_simple_attention() {
-    let seq_len = 3;
-    let hidden_size = 2;
+fn test_complete_phi3_generation() {
+    println!("testing with REAL Phi-3 tokenizer!");
     
-    // 3 words represented as [3, 2] matrix
-    let input = vec![
-        1.0, 0.0,  // word 1 
-        0.0, 1.0,  // word 2
-        1.0, 1.0   // word 3
-    ];
+    let model_dir = "models/phi-3-mini";
     
-    let w_q = vec![
-        1.0, 0.0,
-        0.0, 1.0
-    ];
-    
-    let w_k = vec![
-        1.0, 0.0,
-        0.0, 1.0
-    ];
-    
-    let w_v = vec![
-        1.0, 0.0,
-        0.0, 1.0
-    ];
-    
-    let output = llm_rs::simple_attention(&input, &w_q, &w_k, &w_v, seq_len, hidden_size);
-    
-    println!("Input: {:?}", input);
-    println!("Output: {:?}", output);
-    
-    // basic sanity checks
-    assert_eq!(output.len(), seq_len * hidden_size);
-    
-    // output should be different from input (attention should mix information)
-    assert_ne!(output, input);
-    
-    println!("attention test passed!");
+    match llm_rs::generation::Generator::from_pretrained(model_dir) {
+        Ok(generator) => {
+            println!("loaded generator with real Phi-3 tokenizer!");
+            println!("vocabulary size: {}", generator.model.tokenizer.vocab_size());
+            
+            let result = generator.generate("The future of AI is", 10);
+            match result {
+                Ok(text) => println!("generated: '{}'", text),
+                Err(e) => println!("generation failed: {}", e),
+            }
+        },
+        Err(e) => println!("failed to load: {}", e),
+    }
 }
 
 fn main() {
-    test_simple_attention();
+    test_complete_phi3_generation();
 }

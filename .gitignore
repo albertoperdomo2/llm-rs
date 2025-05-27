@@ -3,4 +3,5 @@ ARCH.md
 
 target/
 **/*.lock
-moddels/
+models/*
+!models/.gitkeep
